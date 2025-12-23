@@ -3,4 +3,5 @@
 /.mule/
 /.idea/
 /*.log
-
+# Ignore lib folder
+src/main/resources/lib/

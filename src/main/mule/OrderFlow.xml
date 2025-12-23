@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="fbc8dad3-9e93-428c-9bf1-3b37c62d040b" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="9ab5443b-054e-4cb4-a7b3-83a246d607a2" >
+		<db:generic-connection driverClassName="org.postgresql.Driver" url="jdbc:postgresql://localhost:5432/smartlogistics" user="muleuser" password="mulepass"/>
+	</db:config>
+	<flow name="OrderFlowFlow" doc:id="c8540277-0a23-4e83-91b8-33e6a0823879" >
+		<http:listener doc:name="Listener" doc:id="6981968a-b2d7-49e3-b77a-bff3e49e6a26" config-ref="HTTP_Listener_config" path="/new-order" allowedMethods="POST"/>
+		<ee:transform doc:name="Transform Message" doc:id="888ac32e-d189-45e0-9c35-bda80845aab7" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+var totalQuantity = payload.items reduce ((item, acc=0) -> acc + item.quantity)
+---
+{
+    order_id: payload.orderId,
+    customer_id: payload.customerId,
+    item_count: totalQuantity,
+    total_amount: payload.totalAmount,
+    delivery_date: payload.deliveryDate
+}
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<set-variable value="#[payload]" doc:name="Store Original Payload" variableName="orderPayload"/>
+		<db:insert doc:name="Insert" doc:id="29046127-e70d-4633-a608-7126736bbd62" config-ref="Database_Config">
+			<db:sql ><![CDATA[INSERT INTO orders (order_id, customer_id, item_count, total_amount, delivery_date)
+VALUES (:order_id, :customer_id, :item_count, :total_amount, :delivery_date)
+ON CONFLICT (order_id)
+DO UPDATE SET
+    customer_id = EXCLUDED.customer_id,
+    item_count = EXCLUDED.item_count,
+    total_amount = EXCLUDED.total_amount,
+    delivery_date = EXCLUDED.delivery_date;]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+  order_id: payload.order_id,
+  customer_id: payload.customer_id,
+  item_count: payload.item_count,
+  total_amount: payload.total_amount,
+  delivery_date: if (payload.delivery_date != null) 
+                   (payload.delivery_date as String {format: "yyyy-MM-dd"}) 
+                 else 
+                   null
+}]]]></db:input-parameters>
+		</db:insert>
+		<ee:transform doc:name="Transform Message" doc:id="a647f98c-4821-40a3-b8f3-b404860ada11" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+  message: "Order processed successfully",
+  order_id: vars.orderPayload.order_id
+}
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+</mule>
