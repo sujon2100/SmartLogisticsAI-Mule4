@@ -13,7 +13,16 @@ http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/cu
 		<db:generic-connection driverClassName="org.postgresql.Driver" url="jdbc:postgresql://localhost:5432/smartlogistics" user="muleuser" password="mulepass"/>
 	</db:config>
 	<flow name="OrderFlowFlow" doc:id="c8540277-0a23-4e83-91b8-33e6a0823879" >
-		<http:listener doc:name="Listener" doc:id="6981968a-b2d7-49e3-b77a-bff3e49e6a26" config-ref="HTTP_Listener_config" path="/new-order" allowedMethods="POST"/>
+		<http:listener doc:name="Listener" doc:id="6981968a-b2d7-49e3-b77a-bff3e49e6a26" config-ref="HTTP_Listener_config" path="/new-order" allowedMethods="POST">
+			<http:response statusCode="#[vars.httpStatus default 200]" />
+		</http:listener>
+		<choice doc:name="Validate Request">
+    <when expression="#[payload.orderId == null]">
+        <raise-error
+            type="VALIDATION:BAD_REQUEST"
+            description="orderId is required"/>
+    </when>
+</choice>
 		<ee:transform doc:name="Transform Message" doc:id="888ac32e-d189-45e0-9c35-bda80845aab7" >
 			<ee:message >
 				<ee:set-payload ><![CDATA[%dw 2.0
@@ -63,5 +72,37 @@ output application/json
 ]]></ee:set-payload>
 			</ee:message>
 		</ee:transform>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="4b616726-8a0c-4654-a980-c009978c525f" type="VALIDATION:*">
+				<logger level="INFO" doc:name="Logger" doc:id="b5ce1918-8684-49c0-9597-cd24a9571c88" message="Validation Error: #[error.description]"/>
+				<ee:transform doc:name="Validation Error Response" doc:id="dcb926fb-8c03-479c-ad76-e351ea08e3e1" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+  error: "Validation error",
+  details: error.description
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<set-variable value="400" doc:name="httpStatus" doc:id="62a50207-5acc-4d0e-a9be-9c4ffd720f56" variableName="httpStatus"/>
+			</on-error-continue>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="f86a8996-d049-411a-be66-b41e50f244ed" >
+				<logger level="INFO" doc:name="Logger" doc:id="ce3ae021-6b3d-4f0f-9a14-db6a635d323f" message="Technical Error: #[error.description]" />
+				<ee:transform doc:name="Technical Error Response" doc:id="808238c6-7b00-4dc2-a47f-2080b61b4dfc">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  error: "Internal server error",
+  details: error.description
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<set-variable value="500" doc:name="httpStatus" doc:id="e0bad96b-4c20-46b6-8cbf-78d612791c88" variableName="httpStatus" />
+			</on-error-propagate>
+		</error-handler>
 	</flow>
 </mule>
